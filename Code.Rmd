@@ -1,0 +1,706 @@
+---
+title: "Diamond Price Prediction"
+author: "Raja Amlan"
+date: "7/23/2021"
+output:
+  pdf_document: default
+  html_document:
+    fig_width: 12
+    fig_height: 8
+    code_folding: hide
+    warning: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+### Libraries Used
+
+```{r}
+
+library(tidyverse)
+library(lubridate)
+library(forcats)
+library(ggplot2)
+library(forcats)
+library(corrplot)
+library(ggcorrplot)
+library(dplyr)
+library(plyr)
+library(e1071)
+library(psych)
+library(hablar)
+library(ggpubr)
+library(skimr)
+library(GGally)
+library(moderndive)
+library(olsrr)
+library(MASS)
+library(rqdatatable)
+
+```
+
+
+```{r}
+rm(list=ls())
+options(scipen=999)
+```
+
+### Data Loading and Manipulation
+
+```{r}
+### reading in the Data.. for some EDA
+
+
+```
+
+Below chunk, looks at the Structure(Data Types), and removes special characters from the Dependent Variable
+
+```{r}
+## Looking at the structure of the data (Need to make a few changes to data types)
+str(training)
+
+
+## Before that remove the special characters,as they are both character variables and need to be converted to numeric
+
+training$Price <- gsub("[[:punct:]]", "", training$Price)
+training$Retail <- gsub("[[:punct:]]", "", training$Retail)
+```
+
+
+Let's have a look at the number of unique values a column has...
+
+```{r}
+## Unique Values in a column, (Levels)
+sapply(training, function(col) length(unique(col)))
+```
+
+Making necessary changes to Variable Class in order to use it in the Analysis...
+
+```{r}
+## Retail Price and Price need to be converted to Numeric Data Types, and few data types need to be converted to factors
+training$Price <- as.numeric(training$Price)
+training$Retail <- as.numeric(training$Retail)
+training$Cut <- as.factor(training$Cut)
+training$Clarity <- as.factor(training$Clarity)
+training$Cut <- as.factor(training$Cut)
+training$Cert <- as.factor(training$Cert)
+training$Symmetry <- as.factor(training$Symmetry)
+training$Color <- as.factor(training$Color)
+training$Polish <- as.factor(training$Polish)
+training$Regions <- as.factor(training$Regions)
+training$Shape <- as.factor(training$Shape)
+training$Symmetry <- as.factor(training$Symmetry)
+training$Fluroescence <- as.factor(training$Fluroescence)
+```
+
+
+Make sure everything looks good....
+
+```{r}
+## Now Let's check the data types again.
+str(training)
+```
+
+
+```{r}
+colSums(is.na(training)) ## Null Values in the Features???
+
+## Unique Values in a column, (Levels)
+sapply(training, function(col) length(unique(col)))
+```
+
+### Q.1 What is the relationship between Carat and Retail Price? Why do you think the relationship takes this form?
+
+```{r}
+## Code to analyse that.
+
+describe(training$Carats) ## Gives us overall idea about the Variable
+describe(training$Retail) ## Gives us overall idea about the variable
+```
+
+```{r}
+dcarats<-density(training$Carats)
+plot(dcarats)
+
+dretail <- density(training$Retail)
+plot(dretail)
+```
+Both of them are skewed to the right and hence need to be transformed.
+
+```{r}
+## Lets do a Linear Model to understand that
+mod <- lm(Retail ~ Carats, data = training)
+summary(mod)
+plot(mod)
+```
+
+Let's look at a log transform and understand if it explains the relationship even better???
+
+```{r}
+## Since the distribution is not very normal hence we need to do a transform while running the model
+log.mod <- lm(log1p(Retail) ~ log1p(Carats), data = training)
+summary(log.mod)
+```
+The R Squared Improved Significantly, after the Natural Log Transform of the variables.This rings a bell again
+
+
+```{r}
+## Plot view to establish Relation
+ggplot(aes(x=Carats, y=Retail), data=training) +
+  geom_point(fill=I("red"), color=I("black"), shape=21) +
+  scale_x_continuous(lim = c(0, quantile(training$Carats, 0.99)) ) +
+  scale_y_continuous(lim = c(0, quantile(training$Retail, 0.99)) ) +
+  stat_smooth(method="lm") +
+  ggtitle("Training: Retail Price vs. Carats")
+```
+Let's look a Correlational Stats
+
+```{r}
+## Corrplot and Table
+training_numeric <- training %>% dplyr::select(where(is.numeric))
+
+M = cor(training_numeric)
+corrplot(M, method = 'number') ## .72 Correlation Coefficient Between Retail and Carats suggests you know what.
+```
+Positive and significantly high correlation between the two variables...
+
+Now coming to the main point and the answer to this question..
+
+Ans. The relationship is not perfectly linear(could also tend to be Exponential) in this case, which means as the carat size increases the Retail Price goes up but not in a linear fashion. This was observed in the various descriptive plots, and the fact that the log transform of the variables helped us improve to understand the variance in the Retail Price of the Diamonds is testimony to the fact that this not a perfect linear relation. The adjusted R-Squared improved after that transform was performed. There exist a certain grade of Heteroscedasticity. Last but not the least a correlation plot will also prove or establish that positive correlation, More carats leading to more price. So, this is absolutely inline with some of my ad-hoc research on Diamond Prices, the bigger the pricier(referring to the 4Cs, here the Carat Size).
+
+  
+### Q.2 Do you think that any of the vendors are over or under charging for diamonds compared to the other vendors? Do you think they are selling the same kind of diamonds? How did you come to this conclusion?
+
+### Disclaimer: I know it was supposed to be a short paragraph, but requesting to bear with me as I walk you through my answer, this according to me is a very open-ended question.
+Answer:
+
+Descriptive Stats by Group
+```{r}
+describeBy(training, group =training$Vendor)
+```
+
+
+```{r}
+
+
+## Let us group them by Vendors and look at how they Retail them
+mean_price<-training %>%
+ group_by(Vendor) %>% 
+ summarise_at(vars(Price), list(name = mean))
+
+median_price<-training %>%
+   group_by(Vendor) %>% 
+   summarise_at(vars(Price), list(name = median))
+
+
+mean_price
+median_price
+```
+
+So vendor 2 sells his products at a median Price of 11.3k USD and Vendor 4 does it at median price of 12.6k USD
+Vendor 2 has a higher Mean Price, which means its right skewed and he sold a few products at very high prices.
+Now the question is, why are the products sold by Vendor 1 and 3 priced so low compared to Vendor 2 and 4.
+Which brings us back to look at the products sold by them from a 4C's perspective, and also the kind if its the same??
+
+Who is the vendor with the highest number of Stones.. Just out of Curiosity..??
+```{r}
+## Who is the vendor with the highest number of Stones.. Just out of Curiosity..
+training %>% group_by(Vendor) %>%
+  dplyr:: summarise(number =n())
+##
+
+```
+
+So Vendor 1 has the second highest number of Stones and yet such a low mean Price. Giving us the idea that he has a certain kind of stones, lets look at the other Factors. Maybe he is undercharging or maybe he doesn't have stones of the same quality as vendor 2 and 4.
+
+```{r}
+## 
+median_carats_vendor<-training %>%
+  group_by(Vendor) %>% 
+  summarise_at(vars(Carats), list(name = median))
+
+median_carats_vendor
+```
+As the previous question, drew a parallel between Carat Size and the Retail Price, there has to be a positive relation between the Vendor's Price and the Carat Size too. Now, Vendor 1's stones have a Median Carat Size of 0.53, which is significantly smaller than the other 3 vendors who have almost similar carat sizes. So, yes not all of them are selling similar kind of stones, one of them has significantly smaller stones.
+
+
+```{r}
+## Let us subset them into all 4 new subsets and look at their properties individually..
+
+training_vendor_1 <- training %>% 
+  filter(Vendor == 1)
+
+training_vendor_2 <- training %>% 
+  filter(Vendor == 2)
+
+training_vendor_3 <- training %>% 
+  filter(Vendor == 3)
+
+training_vendor_4 <- training %>% 
+  filter(Vendor == 4)
+
+
+```
+
+Now let's look at the other important C - Cut
+
+```{r}
+## What Kinda Cut???? Vendor 1 has missing info about majority of them
+ggplot(data = training_vendor_1) +
+  geom_bar(mapping = aes(x = Cut, color = Cut, fill = Cut))
+
+ggplot(data = training_vendor_1, mapping = aes(x = Carats, colour = Cut)) +
+  geom_freqpoly(binwidth = 0.1) 
+
+## Let's Look at Vendor 2
+ggplot(data = training_vendor_2) +
+  geom_bar(mapping = aes(x = Cut,color = Cut, fill = Cut))
+
+ggplot(data = training_vendor_2, mapping = aes(x = Carats, colour = Cut)) +
+  geom_freqpoly(binwidth = 0.1)
+
+## Let's look at Vendor 3
+ggplot(data = training_vendor_3) +
+  geom_bar(mapping = aes(x = Cut, color = Cut, fill = Cut))
+
+ggplot(data = training_vendor_3, mapping = aes(x = Carats, colour = Cut)) +
+  geom_freqpoly(binwidth = 0.1)
+
+## Let's look at Vendor 4
+ggplot(data = training_vendor_4) +
+  geom_bar(mapping = aes(x = Cut, color = Cut, fill = Cut))
+
+ggplot(data = training_vendor_3, mapping = aes(x = Carats, colour = Cut)) +
+  geom_freqpoly(binwidth = 0.1)
+```
+
+Let's Look at the Percentages  off the different Cuts by vendor...
+
+```{r}
+
+par(mfrow = c(2, 2))
+
+ggplot(data = training_vendor_1) + 
+  geom_bar(mapping = aes(x = Cut, fill = Cut, color = Cut, y = ..prop.., group = 1), stat = "count") + 
+  scale_y_continuous(labels = scales::percent_format())
+
+ggplot(data = training_vendor_2) + 
+  geom_bar(mapping = aes(x = Cut, fill = Cut, color = Cut, y = ..prop.., group = 1), stat = "count") + 
+  scale_y_continuous(labels = scales::percent_format())
+
+ggplot(data = training_vendor_3) + 
+  geom_bar(mapping = aes(x = Cut, fill = Cut, color = Cut, y = ..prop.., group = 1), stat = "count") + 
+  scale_y_continuous(labels = scales::percent_format())
+
+ggplot(data = training_vendor_4) + 
+  geom_bar(mapping = aes(x = Cut, fill = Cut, color = Cut, y = ..prop.., group = 1), stat = "count") + 
+  scale_y_continuous(labels = scales::percent_format())
+
+```
+If you look at it based on the Cut, Vendor 3 for sure has a decent Carat Size almost matching up the likes of Vendor 2 and 4, even the percentage of stones with an excellent cut is at par with Vendor 2 and 4 but still has a lower median price, so yes he might be undercharging but there could be other factors too like the Clarity Level, the Color etc as can be looked at further graphs. However, as I am not very sure if these are the only factors that could affect the price of the stone. These are my inferences but there could be more info that needs unearthed.
+
+Let's look at the Color of stones, another major factor.... D being the best and L-Z being the last(can never say the worst, its a Diamond!!)
+
+```{r}
+par(mfrow = c(2, 2))
+
+ggplot(data = training_vendor_1) + 
+  geom_bar(mapping = aes(x = Color,  y = ..prop.., group = 1), stat = "count") + 
+  scale_y_continuous(labels = scales::percent_format())
+
+ggplot(data = training_vendor_2) + 
+  geom_bar(mapping = aes(x = Color,  y = ..prop.., group = 1), stat = "count") + 
+  scale_y_continuous(labels = scales::percent_format())
+
+ggplot(data = training_vendor_3) + 
+  geom_bar(mapping = aes(x = Color,   y = ..prop.., group = 1), stat = "count") + 
+  scale_y_continuous(labels = scales::percent_format())
+
+ggplot(data = training_vendor_4) + 
+  geom_bar(mapping = aes(x = Color,   y = ..prop.., group = 1), stat = "count") + 
+  scale_y_continuous(labels = scales::percent_format())
+```
+Another C, the clarity of Stones,
+
+
+```{r}
+
+par(mfrow = c(2, 2))
+
+ggplot(data = training_vendor_1) + 
+  geom_bar(mapping = aes(x = Clarity,  y = ..prop.., group = 1), stat = "count") + 
+  scale_y_continuous(labels = scales::percent_format())
+
+ggplot(data = training_vendor_2) + 
+  geom_bar(mapping = aes(x = Clarity,  y = ..prop.., group = 1), stat = "count") + 
+  scale_y_continuous(labels = scales::percent_format())
+
+ggplot(data = training_vendor_3) + 
+  geom_bar(mapping = aes(x = Clarity,   y = ..prop.., group = 1), stat = "count") + 
+  scale_y_continuous(labels = scales::percent_format())
+
+ggplot(data = training_vendor_4) + 
+  geom_bar(mapping = aes(x = Clarity,   y = ..prop.., group = 1), stat = "count") + 
+  scale_y_continuous(labels = scales::percent_format())
+
+```
+
+
+
+Looking at the colors will give us a different kind of idea again. So they are all not necessarily selling the same kind of stones, the carat sizes may point towards similarity, but then we have other factors too like the Clarity of the stones, which looks like the percentage break up of stones by clarity is more or less the same for all 4 Vendors. Cut types of stones on offer by the different vendors. This is a  very open ended question and could be looked at from a variety of other angles, like which region is the stone imported from, is it easy to procure stones from that region, if it has an additional cost. So, basically the scope is very wide and there could be various other factors that are contributing to the difference, or the under-charge or Sur-charge.
+
+
+### Moving on to the Third and most important chunk of code and analysis, the prediction of Price
+
+
+```{r}
+
+###### The Model Building or Price Predicting Part #####
+
+## Following the approach, first part would be Understanding the Data..
+
+glimpse(training)
+
+```
+
+Few things have already been dealt with like Data Transformation, Change of Data Type etc.Now let's look at the missing values again.
+Figure if we need imputation, the mice Package, of perform Data Deletion..
+```{r}
+## Few things have already been dealt with like Data Transformation, Change of Data Type etc.Now let's look at the missing values again.
+## Figure if we need imputation, the mice Package, of perform Data Deletion..
+
+skim(training)
+skim(offers)
+colSums(is.na(training))
+```
+
+Now, the Cut Variable is almost missing out on 50% of the data,so I will eliminate those rows, because random imputation wont work, neither will imputing it with the mode, nor using a iterative function or package like MICE.
+
+```{r}
+new_training<-training %>% drop_na(Cut)
+skim(new_training)
+```
+
+From just being aware that I only have 5 Mil USD to spend, I can still go ahead with dropping more variables, because I am not sure imputing the NA's would be a great idea, not aware if they follow a certain rule, or what rules are to be applied to this scope of the business.
+Features like fluorescence, table, depth based on their relation can be chosen to be dropped or dealt with...
+
+Let's understand a few relationships here, Pairs function will take a bit too long...
+
+```{r}
+
+new_training_features <- subset(new_training, select = -c(Measurements, LogPrice, LogRetail)) ## Dropped few more variables
+ggpairs(new_training_features, cardinality_threshold = 50)
+```
+
+
+Gives you a overall view however we will more closely look at the most compelling features in this analysis.
+Let's do a Corrplot to understand the relation...
+
+Understanding the Numeric Variables.....
+
+```{r}
+
+new_training_numeric <- new_training %>% dplyr::select(where(is.numeric))
+cor1 <- cor(new_training_numeric)
+corrplot(cor1, method = 'number', type = "lower")
+```
+### Observations
+
+1. The most compelling story, yet again is between Carats and the Price.
+
+And More plots, to understand/spot any trend, linearity etc..
+```{r}
+plot1 <- new_training_numeric %>%
+  ggplot(aes(x = Vendor, y = Price)) + 
+  geom_point()
+plot1
+
+plot2 <- new_training_numeric %>%
+  ggplot(aes(x = Carats, y = Price)) + 
+  geom_point()
+plot2
+
+plot3 <- new_training_numeric %>%
+  ggplot(aes(x = Depth, y = Price)) + 
+  geom_point()
+plot3
+
+### Table percentage: Most cases linger around the median.
+plot4 <- new_training_numeric %>%
+  ggplot(aes(x =Table , y = Price)) + 
+  geom_point()
+plot4
+```
+
+
+Let's look at the Table Numeric Variable
+```{r}
+### Log Transform of the Table Variable 
+new_training_numeric$LTable <- log(new_training_numeric$Table)
+```
+
+```{r}
+## Drop some NA's from the LTable Variable
+new_training_numeric<-new_training_numeric %>% drop_na(LTable)
+dtable<-density(new_training_numeric$LTable, na.rm = TRUE)
+plot(dtable)
+
+```
+Table again has a bunch of NA's now, removing all the data again would leave us with very less data to train the model on, hence lets transform it, check normality visually and wait till we start building the model if we are going to use it, keep it or drop it from the model.
+
+Some Tests to further strengthen the Hypothesis....
+
+```{r}
+## 
+### Or the Pearson, Kendall Spearman (Not as significant, so might drop this)
+res1 <- cor.test(new_training_numeric$Price, new_training_numeric$Table, 
+                 method=c("pearson", "kendall", "spearman") )
+res1
+
+### Carats
+### Or the Pearson, Kendall Spearman (See how statistically significant is Carats)
+res2 <- cor.test(new_training_numeric$Price, new_training_numeric$Carats, 
+                 method=c("pearson", "kendall", "spearman") )
+res2
+
+### Depth ### (Will use this feature in initial model)
+res3 <- cor.test(new_training_numeric$Price, new_training_numeric$Depth, 
+                 method=c("pearson", "kendall", "spearman") )
+res3
+
+### Vendor ### 
+res4 <- cor.test(new_training_numeric$Price, new_training_numeric$Vendor, 
+                 method=c("pearson", "kendall", "spearman") )
+res4
+
+```
+
+Now for the Categorical Variables, we will actually use different model approaches, and then start to eliminate them out using a backward or a forward step model...but in case we have a good training accuracy and it doesnt change on using those approaches, I will just stick to one. (Time crunch..)
+
+THE AOV Approach is used for understanding variable importance of Categorical Features on the Continuous Dependent Variable here..
+
+```{r}
+new_training_factor <-new_training %>% dplyr::select(where(is.factor),Price)
+model_aov <- aov(data = new_training_factor, Price ~ .)
+summary(model_aov)
+```
+
+Observations:
+
+1. Clarity
+2. Cut
+3. Colour
+4. Polish (The new guy)
+
+### Model Building
+
+
+```{r}
+## Let's throw all required or chosen variables in a model...
+
+model1 <- lm(Price ~ . -id -LogRetail -LogPrice , data = new_training)
+get_regression_summaries(model1)
+
+```
+Nas, and so many other variables lacking statistical significance. Okay lets take a more filtered and selective approach.
+
+```{r}
+
+colSums(is.na(new_training)) ## There is still a lot of data missing, but I will drop those variables and not remove the corresponding rows
+```
+
+```{r}
+new_training$LogCarats <- log(new_training$Carats)
+offers$LogCarats <- log(offers$Carats)
+new_training_drop <- droplevels(new_training) ## Drops the unnecessary levels of factors
+```
+
+### Model 2 (An adjusted R-Squared of 97%, can it get better..)
+
+```{r}
+model2 <- lm(LogPrice ~ LogCarats + Clarity + Color + Polish + Cut + Vendor  , data = new_training) ## Intuitively I don't think Vendor should be included, but lets see.
+get_regression_summaries(model2)
+```
+
+### Model 3 - Actually Adj-R Squared is almost the same in this case...and I would stick with this to do my predictions..
+
+```{r}
+
+model3 <- lm(LogPrice ~ LogCarats + Clarity + Color + Polish + Cut  , data = new_training)
+get_regression_summaries(model3)
+
+```
+
+Is there any Multi-Collinearity though???
+
+```{r}
+## Let's try and identify Multi Collinearity
+car::vif(model3) 
+```
+Throws an error related to Aliases, which means I need to use the Alias function now to get rid of the highly correlated datapoints.
+
+Let's see what variable causes this high dependency -
+
+```{r}
+alias(model3) ## Turns out the non zero term is Clarity: None, but I won't drop this variable totally.
+```
+
+So its Clarity: None (Subcategory), I choose to ignore this for now. There are ways to fix it.
+
+Normality of the Residuals?????
+
+```{r}
+## Are the Residuals Distributed Normally???
+
+ks.test(studres(model3), new_training$LogPrice)
+```
+
+Because our p-value is <0.5, hence the H0 is rejected. Data is not normally distributed.
+
+
+```{r}
+bptest(model3)
+```
+
+This test signifies that we have residual heteroscedasticity, so that means the variance of the residuals is not constant around the regression lines. Slight indications of why we might not normalize the data for a better prediction..
+
+```{r}
+
+## Let's use this model now to Predict and compare with the Validation set...
+pred <- predict(model3, offers)
+```
+
+I get an error and this is because of the droplevels in factors or new levels in the newdata
+
+"Error in model.frame.default(Terms, newdata, na.action = na.action, xlev = object$xlevels) : factor Color has new levels Ffancy darkbrown, Flby, S-t, T" --> Let's fix this too..
+
+But before that I am making some changes to the offers table
+
+```{r}
+### Offers
+colSums(is.na(offers))
+
+new_offers<- offers %>% drop_na(Cut)
+new_offers$LogCarats <- log(new_offers$Carats)
+
+colSums(is.na(new_offers))
+```
+Trying to predict again
+```{r}
+
+## Let's use this model now to Predict and compare with the Validation set...
+pred <- predict(model3, new_offers)
+```
+
+```{r}
+new_offers_test <-subset(new_offers, Color != 'Flby' & Color != 'S-t' & Color != 'T' & Color !='Ffancy darkbrown' & Polish != 'Fair')
+```
+
+Try again
+
+
+```{r}
+pred <- predict(model3, new_offers_test)
+```
+Boom, it did work.. I have the predictions locked and loaded in a vector called pred, time to bind it into the Data Frame. Since the prices are in log form, I will do an inverse of the natural log by doing an exponential transform.Now Pred3 column in this has Offers Column Populated.
+
+```{r}
+output <- cbind(new_offers_test, pred)
+output$pred3 <- exp(output$pred)
+```
+
+
+The goal is still not to have a cumulative sum of all offers we are willing to make more than 5 Million USD..
+
+```{r}
+output$Offers <- output$pred3
+output = subset(output, select = -c(LogCarats, pred3, pred))
+```
+
+Now elimination of those variables, we dont need. Giving weightage to the 4C Rule, I will eliminate those rows which are populated with NA's for these variables. And them other features...so as to have complete info about the buys...
+
+```{r}
+colSums(is.na(output))
+output2 <- output %>% drop_na(Cert,Depth,Table,Fluroescence)
+
+
+
+```
+
+Output 2 now has only 625 variables, lets check if the overall sum of the Price of those Diamonds is above USD 5 Million.
+
+```{r}
+sum(output2$Offers)
+```
+This is still higher than the budget..
+
+Now comes in the bigger question, as in what should I opt for ? Some adhoc research says Cut is the most important of the 4C's, now I am not totally sure but giving it a shot.
+
+```{r}
+output3 <-subset(output2, Cut == 'Excellent' )
+```
+
+
+There you go we now have 415 diamonds, with a cumulative total of USD 7 Million Dollars.
+
+
+```{r}
+ output4 <-subset(output3, Carats > 1.19 )
+ sum(output4$Offers)
+```
+Now moving on to colors, 
+
+```{r}
+  output5 <-subset(output4, Color =='D' | Color =='E' | Color =='F' | Color =='G' |Color =='H' | Color =='I')
+  sum(output5$Offers)
+```
+Let's try taking out some stones with lower clarity....
+
+```{r}
+output6 <-subset(output5, Clarity != 'I1' & Clarity != 'IF' )
+sum(output6$Offers)
+```
+
+### I am stopping now, at this stage and making Output 6 my final file here...
+
+
+### Output 6 is the final file and making an offer of total 194 Diamonds in total.
+
+Now let's populate this data in our original table, which is the offers table...
+
+```{r}
+
+final <- natural_join(offers, output6, 
+                      by = "id",
+                      jointype = "FULL")
+
+knitr::kable(final)
+
+
+```
+
+The original table has one additional column so I will drop that and rename it back to Offers, just like the one that was sent to me.
+
+```{r}
+offers = subset(final, select = -c(LogCarats))
+
+colSums(is.na(offers))
+
+```
+
+Let's convert the data.frame to a csv....
+
+```{r}
+write.csv(offers,"C:\\Users\\raja.amlan\\Downloads\\offers.csv", row.names = FALSE)
+```
+
+###                           THE END                    
